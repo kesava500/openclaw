@@ -31,6 +31,7 @@ function hasStringValue(value: unknown): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+/** Returns true when the message tool targets anything other than the source reply route. */
 function hasExplicitMessageRoute(args: Record<string, unknown>): boolean {
   if (EXPLICIT_MESSAGE_ROUTE_KEYS.some((key) => hasStringValue(args[key]))) {
     return true;
@@ -53,6 +54,7 @@ function parseJsonRecord(value: string): Record<string, unknown> | undefined {
   }
 }
 
+/** Detects concrete channel receipts rather than generic ok/success envelopes. */
 function recordHasDeliveredMessageId(record: Record<string, unknown>): boolean {
   if (hasStringValue(record.messageId)) {
     return true;
