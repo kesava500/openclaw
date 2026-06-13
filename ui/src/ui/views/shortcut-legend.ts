@@ -69,8 +69,7 @@ function renderGroup(group: ShortcutGroup) {
                 ${s.keys.map((k, i) =>
                   i === 0
                     ? renderKey(k)
-                    : html`<span class="shortcut-legend__plus" aria-hidden="true">+</span
-                        >${renderKey(k)}`,
+                    : html`<span class="shortcut-legend__plus" aria-hidden="true">+</span>${renderKey(k)}`,
                 )}
               </dt>
               <dd class="shortcut-legend__desc">${s.description}</dd>
