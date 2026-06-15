@@ -579,7 +579,7 @@ describe("scripts/test-projects changed-target routing", () => {
       ["scripts/generate-npm-shrinkwrap.mjs", ["test/scripts/generate-npm-shrinkwrap.test.ts"]],
       [
         "scripts/package-openclaw-for-docker.mjs",
-        ["test/scripts/package-openclaw-for-docker.test.ts"],
+        ["test/e2e/qa-lab/runtime/package-openclaw-for-docker.e2e.test.ts"],
       ],
       ["scripts/package-mac-app.sh", ["test/scripts/package-mac-app.test.ts"]],
       ["scripts/package-mac-dist.sh", ["test/scripts/package-mac-dist.test.ts"]],
@@ -598,6 +598,32 @@ describe("scripts/test-projects changed-target routing", () => {
       [
         "scripts/preinstall-package-manager-warning.mjs",
         ["test/scripts/preinstall-package-manager-warning.test.ts"],
+      ],
+    ]);
+
+    for (const [source, targets] of expectedTargets) {
+      expect(resolveChangedTestTargetPlan([source]), source).toEqual({
+        mode: "targets",
+        targets,
+      });
+    }
+  });
+
+  it("keeps QA Lab script-evidence edits on QA e2e tests", () => {
+    const expectedTargets = new Map([
+      [
+        "scripts/dev/channel-message-flows.ts",
+        ["test/e2e/qa-lab/channels/channel-message-flows.e2e.test.ts"],
+      ],
+      ["scripts/dev/gateway-smoke.ts", ["test/e2e/qa-lab/runtime/gateway-smoke.e2e.test.ts"]],
+      ["scripts/qa-otel-smoke.ts", ["test/e2e/qa-lab/runtime/qa-otel-smoke.e2e.test.ts"]],
+      [
+        "scripts/e2e/lib/plugin-lifecycle-matrix/probe.mjs",
+        ["test/e2e/qa-lab/plugins/plugin-lifecycle-probe.e2e.test.ts"],
+      ],
+      [
+        "scripts/e2e/lib/plugin-lifecycle-matrix/sweep.sh",
+        ["test/e2e/qa-lab/plugins/plugin-lifecycle-probe.e2e.test.ts"],
       ],
     ]);
 
