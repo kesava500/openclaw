@@ -625,15 +625,9 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
         contextProjection: { mode: "thread_bootstrap" as const, epoch: "epoch-1" },
       })),
     });
-    const harness = createStartedThreadHarness(async (method) => {
-      if (method === "thread/resume") {
-        return threadStartResult("thread-bootstrapped");
-      }
-      if (method === "thread/start") {
-        return threadStartResult("thread-fresh");
-      }
-      return undefined;
-    });
+    const harness = createStartedThreadHarness(async (method) =>
+      method === "thread/resume" ? threadStartResult("thread-bootstrapped") : undefined,
+    );
     const params = createParams(sessionFile, workspaceDir);
     params.contextEngine = contextEngine;
 
@@ -888,6 +882,8 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
         item: { id: "compact-1", type: "contextCompaction" },
       },
     });
+    const compactedBinding = await readCodexAppServerBinding(sessionFile);
+    expect(compactedBinding).not.toHaveProperty("nativeContextUsage");
     await harness.completeTurn("completed", "thread-bootstrapped");
     await run;
 
@@ -944,6 +940,8 @@ describe("runCodexAppServerAttempt context-engine lifecycle", () => {
     await harness.waitForMethod("turn/start");
 
     expect(harness.requests.map((request) => request.method)).toEqual([
+      "thread/resume",
+      "thread/unsubscribe",
       "thread/start",
       "turn/start",
     ]);

@@ -101,6 +101,16 @@ function flushDiagnosticEvents() {
   return waitForDiagnosticEventsDrained();
 }
 
+function createStoredUsageRotationHarness(
+  options: { onStart?: (authProfileId: string | undefined) => void } = {},
+) {
+  return createStartedThreadHarness(
+    async (method) =>
+      method === "thread/resume" ? threadStartResult("thread-existing") : undefined,
+    options,
+  );
+}
+
 function openSocket(url: string): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(url);
@@ -3182,7 +3192,11 @@ describe("runCodexAppServerAttempt", () => {
   it("waits for an already-active native turn before starting a resumed thread turn", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
-    await writeExistingBinding(sessionFile, workspaceDir, { dynamicToolsFingerprint: "[]" });
+    await writeExistingBinding(sessionFile, workspaceDir, {
+      dynamicToolsFingerprint: "[]",
+      nativeContextUsage: { currentTokens: 30_000 },
+      modelContextWindow: 258_400,
+    });
     const harness = createAppServerHarness(async (method) => {
       if (method === "thread/resume") {
         const response = threadStartResult("thread-existing");
@@ -3202,7 +3216,9 @@ describe("runCodexAppServerAttempt", () => {
 
     const run = runCodexAppServerAttempt(createParams(sessionFile, workspaceDir));
     await harness.waitForMethod("thread/resume");
-    expectResumeRequest(harness.requests, { excludeTurns: false });
+    expectResumeRequest(harness.requests, { excludeTurns: true });
+    const activeBinding = await readCodexAppServerBinding(sessionFile);
+    expect(activeBinding).not.toHaveProperty("nativeContextUsage");
     await new Promise((resolve) => {
       setTimeout(resolve, 20);
     });
@@ -4476,14 +4492,14 @@ describe("runCodexAppServerAttempt", () => {
     await expect(run).resolves.toMatchObject({ aborted: false });
   });
 
-  it("starts a fresh Codex thread when prepared native usage reaches the fuse", async () => {
+  it("starts a fresh Codex thread when authoritative native usage reaches the fuse", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
     await writeExistingBinding(sessionFile, workspaceDir, {
       dynamicToolsFingerprint: "[]",
       nativeContextUsage: { currentTokens: 300_000 },
     });
-    const { requests, waitForMethod, completeTurn } = createStartedThreadHarness();
+    const { requests, waitForMethod, completeTurn } = createStoredUsageRotationHarness();
     const params = createParams(sessionFile, workspaceDir);
 
     const run = runCodexAppServerAttempt(params, {
@@ -4494,7 +4510,10 @@ describe("runCodexAppServerAttempt", () => {
     await run;
 
     expect(requests.map((entry) => entry.method)).toContain("thread/start");
-    expect(requests.map((entry) => entry.method)).not.toContain("thread/resume");
+    expect(requests.map((entry) => entry.method)).toContain("thread/resume");
+    expect(requests.find((entry) => entry.method === "thread/resume")?.params).toMatchObject({
+      excludeTurns: true,
+    });
     const savedBinding = await readCodexAppServerBinding(sessionFile);
     expect(savedBinding?.threadId).toBe("thread-1");
   });
@@ -4511,6 +4530,8 @@ describe("runCodexAppServerAttempt", () => {
 
     const firstRun = runCodexAppServerAttempt(createParams(sessionFile, workspaceDir));
     await firstHarness.waitForMethod("turn/start");
+    const inFlightBinding = await readCodexAppServerBinding(sessionFile);
+    expect(inFlightBinding).not.toHaveProperty("nativeContextUsage");
     await firstHarness.notify({
       method: "thread/tokenUsage/updated",
       params: {
@@ -4535,9 +4556,12 @@ describe("runCodexAppServerAttempt", () => {
     await secondRun;
     expect(secondHarness.requests.map((entry) => entry.method)).toContain("thread/resume");
     expect(secondHarness.requests.map((entry) => entry.method)).not.toContain("thread/start");
+    expect(
+      secondHarness.requests.find((entry) => entry.method === "thread/resume")?.params,
+    ).toMatchObject({ excludeTurns: true });
   });
 
-  it("persists current context usage on an interrupted turn without covering its history", async () => {
+  it("does not persist in-flight context usage from a nonterminal interrupted turn", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
     const historyCoveredThrough = "2026-01-01T00:00:00.000Z";
@@ -4566,14 +4590,13 @@ describe("runCodexAppServerAttempt", () => {
     abortController.abort("cancelled");
     await expect(run).resolves.toMatchObject({ aborted: true });
 
-    await expect(readCodexAppServerBinding(sessionFile)).resolves.toMatchObject({
-      historyCoveredThrough,
-      nativeContextUsage: { currentTokens: 32_000 },
-      modelContextWindow: 258_400,
-    });
+    const binding = await readCodexAppServerBinding(sessionFile);
+    expect(binding).toMatchObject({ historyCoveredThrough });
+    expect(binding).not.toHaveProperty("nativeContextUsage");
+    expect(binding).not.toHaveProperty("modelContextWindow");
   });
 
-  it("persists replayed current context usage when turn/start fails", async () => {
+  it("invalidates usage observed from resumed work before a failed turn/start", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
     const historyCoveredThrough = "2026-01-01T00:00:00.000Z";
@@ -4593,7 +4616,7 @@ describe("runCodexAppServerAttempt", () => {
         };
       }
       if (method === "turn/start") {
-        throw new Error("turn start failed after usage replay");
+        throw new Error("turn start failed after resumed work");
       }
       return {};
     });
@@ -4619,12 +4642,11 @@ describe("runCodexAppServerAttempt", () => {
       },
     });
 
-    await expect(run).rejects.toThrow("turn start failed after usage replay");
-    await expect(readCodexAppServerBinding(sessionFile)).resolves.toMatchObject({
-      historyCoveredThrough,
-      nativeContextUsage: { currentTokens: 42_000 },
-      modelContextWindow: 258_400,
-    });
+    await expect(run).rejects.toThrow("turn start failed after resumed work");
+    const binding = await readCodexAppServerBinding(sessionFile);
+    expect(binding).toMatchObject({ historyCoveredThrough });
+    expect(binding).not.toHaveProperty("nativeContextUsage");
+    expect(binding).not.toHaveProperty("modelContextWindow");
   });
 
   it("starts a fresh Codex thread before turn/start when the next prompt would exhaust native headroom", async () => {
@@ -4635,7 +4657,7 @@ describe("runCodexAppServerAttempt", () => {
       nativeContextUsage: { currentTokens: 220_000 },
       modelContextWindow: 258_400,
     });
-    const { requests, waitForMethod, completeTurn } = createStartedThreadHarness();
+    const { requests, waitForMethod, completeTurn } = createStoredUsageRotationHarness();
     const params = createParams(sessionFile, workspaceDir);
     params.prompt = "large prompt ".repeat(12_000);
 
@@ -4647,7 +4669,7 @@ describe("runCodexAppServerAttempt", () => {
     await run;
 
     expect(requests.map((entry) => entry.method)).toContain("thread/start");
-    expect(requests.map((entry) => entry.method)).not.toContain("thread/resume");
+    expect(requests.map((entry) => entry.method)).toContain("thread/resume");
     const savedBinding = await readCodexAppServerBinding(sessionFile);
     expect(savedBinding?.threadId).toBe("thread-1");
   });
@@ -4672,7 +4694,7 @@ describe("runCodexAppServerAttempt", () => {
     sessionManager.appendMessage(
       assistantMessage("post-binding assistant context", historyCoveredThrough + 2_000),
     );
-    const { requests, waitForMethod, completeTurn } = createStartedThreadHarness();
+    const { requests, waitForMethod, completeTurn } = createStoredUsageRotationHarness();
     const params = createParams(sessionFile, workspaceDir);
     params.prompt = "large prompt ".repeat(12_000);
 
@@ -4684,7 +4706,7 @@ describe("runCodexAppServerAttempt", () => {
     await run;
 
     expect(requests.map((entry) => entry.method)).toContain("thread/start");
-    expect(requests.map((entry) => entry.method)).not.toContain("thread/resume");
+    expect(requests.map((entry) => entry.method)).toContain("thread/resume");
     const turnStart = requests.find((request) => request.method === "turn/start");
     const inputText =
       (turnStart?.params as { input?: Array<{ text?: string }> } | undefined)?.input?.[0]?.text ??
@@ -4695,7 +4717,7 @@ describe("runCodexAppServerAttempt", () => {
     expect(savedBinding?.threadId).toBe("thread-1");
   });
 
-  it("preserves bound auth when prepared native usage forces rotation", async () => {
+  it("preserves bound auth when authoritative native usage forces rotation", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
     await writeExistingBinding(sessionFile, workspaceDir, {
@@ -4704,7 +4726,7 @@ describe("runCodexAppServerAttempt", () => {
       nativeContextUsage: { currentTokens: 300_000 },
     });
     const seenAuthProfileIds: Array<string | undefined> = [];
-    const { requests, waitForMethod, completeTurn } = createStartedThreadHarness(undefined, {
+    const { requests, waitForMethod, completeTurn } = createStoredUsageRotationHarness({
       onStart: (authProfileId) => {
         seenAuthProfileIds.push(authProfileId);
       },
@@ -4723,7 +4745,7 @@ describe("runCodexAppServerAttempt", () => {
     await run;
 
     expect(requests.map((entry) => entry.method)).toContain("thread/start");
-    expect(requests.map((entry) => entry.method)).not.toContain("thread/resume");
+    expect(requests.map((entry) => entry.method)).toContain("thread/resume");
     expect(seenAuthProfileIds).toEqual(["openai:work"]);
     const savedBinding = await readCodexAppServerBinding(sessionFile);
     expect(savedBinding?.authProfileId).toBe("openai:work");
@@ -4838,7 +4860,7 @@ describe("runCodexAppServerAttempt", () => {
   it("passes configured app-server policy, sandbox, service tier, and model on resume", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
-    await writeExistingBinding(sessionFile, workspaceDir, { model: "gpt-5.2" });
+    await writeExistingBinding(sessionFile, workspaceDir, { model: "gpt-5.4-codex" });
     const { requests, waitForMethod, completeTurn } = createResumeHarness();
     const params = createParams(sessionFile, workspaceDir);
     params.authProfileId = "openai-profile";
@@ -4900,7 +4922,7 @@ describe("runCodexAppServerAttempt", () => {
   it("passes current Codex service tier request values through app-server resume and turn requests", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
-    await writeExistingBinding(sessionFile, workspaceDir, { model: "gpt-5.2" });
+    await writeExistingBinding(sessionFile, workspaceDir, { model: "gpt-5.4-codex" });
     const { requests, waitForMethod, completeTurn } = createResumeHarness();
 
     const run = runCodexAppServerAttempt(createParams(sessionFile, workspaceDir), {
@@ -5074,8 +5096,10 @@ describe("runCodexAppServerAttempt", () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
     const harness = createStartedThreadHarness(async (method) => {
-      if (method === "thread/resume") {
-        return threadStartResult("thread-1");
+      if (method === "thread/start" || method === "thread/resume") {
+        const response = threadStartResult("thread-1");
+        response.model = "gpt-5.5";
+        return response;
       }
       if (method === "turn/start") {
         turnNumber += 1;
@@ -5261,7 +5285,7 @@ describe("runCodexAppServerAttempt", () => {
     expect(turnRequestParams?.approvalsReviewer).toBe("user");
   });
 
-  it("does not inherit a bound local provider for explicit native OpenAI resumed runs", async () => {
+  it("starts a native OpenAI replacement instead of inheriting a bound local provider", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
     await writeExistingBinding(sessionFile, workspaceDir, {
@@ -5269,7 +5293,13 @@ describe("runCodexAppServerAttempt", () => {
       model: "local-model",
       modelProvider: "lmstudio",
     });
-    const { requests, waitForMethod, completeTurn } = createResumeHarness();
+    const { requests, waitForMethod, completeTurn } = createStartedThreadHarness(async (method) => {
+      if (method !== "thread/start") {
+        return undefined;
+      }
+      const response = threadStartResult();
+      return { ...response, model: "gpt-5.5", modelProvider: "openai" };
+    });
     const params = createParams(sessionFile, workspaceDir);
     params.provider = "openai";
     params.authProfileId = "openai-profile";
@@ -5297,26 +5327,32 @@ describe("runCodexAppServerAttempt", () => {
       },
     });
     await waitForMethod("turn/start");
-    await completeTurn({ threadId: "thread-existing", turnId: "turn-1" });
+    await completeTurn({ threadId: "thread-1", turnId: "turn-1" });
     await run;
 
-    const resumeRequest = requests.find((request) => request.method === "thread/resume");
-    const resumeRequestParams = resumeRequest?.params as Record<string, unknown> | undefined;
-    expect(resumeRequestParams?.model).toBe("gpt-5.5");
-    expect(resumeRequestParams).not.toHaveProperty("modelProvider");
-    expect(resumeRequestParams?.approvalsReviewer).toBe("user");
+    expect(requests.map((request) => request.method)).not.toContain("thread/resume");
+    const startRequest = requests.find((request) => request.method === "thread/start");
+    const startRequestParams = startRequest?.params as Record<string, unknown> | undefined;
+    expect(startRequestParams?.model).toBe("gpt-5.5");
+    expect(startRequestParams).not.toHaveProperty("modelProvider");
     const turnRequest = requests.find((request) => request.method === "turn/start");
     expect(turnRequest?.params).toMatchObject({ approvalsReviewer: "auto_review" });
   });
 
-  it("does not apply bound local model providers to provider-qualified resumed models", async () => {
+  it("starts a provider-qualified replacement instead of applying a bound local provider", async () => {
     const sessionFile = path.join(tempDir, "session.jsonl");
     const workspaceDir = path.join(tempDir, "workspace");
     await writeExistingBinding(sessionFile, workspaceDir, {
       model: "local-model",
       modelProvider: "lmstudio",
     });
-    const { requests, waitForMethod, completeTurn } = createResumeHarness();
+    const { requests, waitForMethod, completeTurn } = createStartedThreadHarness(async (method) => {
+      if (method !== "thread/start") {
+        return undefined;
+      }
+      const response = threadStartResult();
+      return { ...response, model: "gpt-5.5", modelProvider: "openai" };
+    });
     const params = createParams(sessionFile, workspaceDir);
     params.provider = "codex";
     params.modelId = "openai/gpt-5.5";
@@ -5330,14 +5366,15 @@ describe("runCodexAppServerAttempt", () => {
       },
     });
     await waitForMethod("turn/start");
-    await completeTurn({ threadId: "thread-existing", turnId: "turn-1" });
+    await completeTurn({ threadId: "thread-1", turnId: "turn-1" });
     await run;
 
-    const resumeRequest = requests.find((request) => request.method === "thread/resume");
-    const resumeRequestParams = resumeRequest?.params as Record<string, unknown> | undefined;
-    expect(resumeRequestParams?.model).toBe("gpt-5.5");
-    expect(resumeRequestParams?.modelProvider).toBe("openai");
-    expect(resumeRequestParams?.approvalsReviewer).toBe("guardian_subagent");
+    expect(requests.map((request) => request.method)).not.toContain("thread/resume");
+    const startRequest = requests.find((request) => request.method === "thread/start");
+    const startRequestParams = startRequest?.params as Record<string, unknown> | undefined;
+    expect(startRequestParams?.model).toBe("gpt-5.5");
+    expect(startRequestParams?.modelProvider).toBe("openai");
+    expect(startRequestParams?.approvalsReviewer).toBe("guardian_subagent");
   });
 
   it("reuses the bound auth profile for app-server startup when params omit it", async () => {
