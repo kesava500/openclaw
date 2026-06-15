@@ -243,6 +243,33 @@ function emitEnum(name: string, schema: JsonSchema): string {
   ].join("\n");
 }
 
+function stringLiteralUnionCases(schema: JsonSchema): string[] | undefined {
+  const branches = schema.oneOf ?? schema.anyOf;
+  if (!branches || branches.length === 0) {
+    return undefined;
+  }
+  const cases = branches.map((branch) =>
+    branch.type === "string" && typeof branch.const === "string" ? branch.const : undefined,
+  );
+  if (cases.some((value) => value === undefined)) {
+    return undefined;
+  }
+  return [...new Set(cases as string[])];
+}
+
+function emitStringLiteralUnionEnum(name: string, schema: JsonSchema): string | undefined {
+  const cases = stringLiteralUnionCases(schema);
+  if (!cases || cases.length === 0) {
+    return undefined;
+  }
+  return [
+    `public enum ${name}: String, Codable, Sendable {`,
+    ...cases.map((value) => `    case ${safeName(value)} = "${value}"`),
+    "}",
+    "",
+  ].join("\n");
+}
+
 function emitStruct(name: string, schema: JsonSchema): string {
   const props = schema.properties ?? {};
   const required = new Set(schema.required ?? []);
@@ -607,6 +634,11 @@ async function generate() {
     }
     if (schema.type === "string" && schema.enum) {
       parts.push(emitEnum(name, schema));
+      continue;
+    }
+    const unionEnum = emitStringLiteralUnionEnum(name, schema);
+    if (unionEnum) {
+      parts.push(unionEnum);
     }
   }
 
