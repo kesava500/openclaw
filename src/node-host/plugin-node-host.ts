@@ -50,6 +50,31 @@ export function listRegisteredNodeHostCapsAndCommands(): {
   };
 }
 
+/** Summarize the active plugin registry for node-host startup diagnostics. */
+export function inspectNodeHostPluginRegistry(): {
+  active: boolean;
+  plugins: string[];
+  nodeHostCommands: string[];
+} {
+  const registry = getActivePluginRegistry();
+  if (!registry) {
+    return {
+      active: false,
+      plugins: [],
+      nodeHostCommands: [],
+    };
+  }
+  return {
+    active: true,
+    plugins: registry.plugins
+      .map((entry) => `${entry.id}:${entry.status}`)
+      .toSorted((left, right) => left.localeCompare(right)),
+    nodeHostCommands: (registry.nodeHostCommands ?? [])
+      .map((entry) => `${entry.command.command}:${entry.command.cap ?? ""}`)
+      .toSorted((left, right) => left.localeCompare(right)),
+  };
+}
+
 /** Invoke a registered node-host plugin command, or return null for unknown commands. */
 export async function invokeRegisteredNodeHostCommand(
   command: string,

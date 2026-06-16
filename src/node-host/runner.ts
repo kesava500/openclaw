@@ -10,6 +10,7 @@ import { startGatewayClientWhenEventLoopReady } from "../gateway/client-start-re
 import { GatewayClient, type GatewayReconnectPausedInfo } from "../gateway/client.js";
 import { resolveGatewayConnectionAuth } from "../gateway/connection-auth.js";
 import { loadOrCreateDeviceIdentity } from "../infra/device-identity.js";
+import { isTruthyEnvValue } from "../infra/env.js";
 import type { SkillBinTrustEntry } from "../infra/exec-approvals.js";
 import { resolveExecutableFromPathEnv } from "../infra/executable-path.js";
 import { getMachineDisplayName } from "../infra/machine-name.js";
@@ -25,6 +26,7 @@ import {
 } from "./invoke.js";
 import {
   ensureNodeHostPluginRegistry,
+  inspectNodeHostPluginRegistry,
   listRegisteredNodeHostCapsAndCommands,
 } from "./plugin-node-host.js";
 
@@ -70,6 +72,17 @@ export function resolveNodeHostGatewayDeviceFamily(platform: NodeJS.Platform): s
 
 function writeStderrLine(message: string): void {
   process.stderr.write(`${message}\n`);
+}
+
+function isNodeHostDebugEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return isTruthyEnvValue(env.OPENCLAW_DEBUG) || isTruthyEnvValue(env.OPENCLAW_DEBUG_NODE_HOST);
+}
+
+function writeNodeHostDebugLine(message: string, env: NodeJS.ProcessEnv = process.env): void {
+  if (!isNodeHostDebugEnabled(env)) {
+    return;
+  }
+  writeStderrLine(`[node-host:debug] ${message}`);
 }
 
 const NODE_HOST_EXIT_ON_RECONNECT_PAUSE_CODES: ReadonlySet<string> = new Set([
@@ -253,6 +266,7 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
   const cfg = getRuntimeConfig();
   await ensureNodeHostPluginRegistry({ config: cfg, env: process.env });
   const pluginNodeHost = listRegisteredNodeHostCapsAndCommands();
+  const registryDebug = inspectNodeHostPluginRegistry();
   const { token, password } = await resolveNodeHostGatewayCredentials({
     config: cfg,
     env: process.env,
@@ -263,6 +277,22 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
   const scheme = gateway.tls ? "wss" : "ws";
   const url = `${scheme}://${host}:${port}`;
   const pathEnv = ensureNodePathEnv();
+  const caps = ["system", ...pluginNodeHost.caps];
+  const commands = [
+    ...NODE_SYSTEM_RUN_COMMANDS,
+    ...NODE_EXEC_APPROVALS_COMMANDS,
+    ...pluginNodeHost.commands,
+  ];
+
+  writeNodeHostDebugLine(
+    `startup version=${VERSION} platform=${process.platform} execPath=${process.execPath} argv=${JSON.stringify(process.argv)}`,
+  );
+  writeNodeHostDebugLine(
+    `pluginRegistry active=${registryDebug.active} plugins=${JSON.stringify(registryDebug.plugins)} nodeHostCommands=${JSON.stringify(registryDebug.nodeHostCommands)}`,
+  );
+  writeNodeHostDebugLine(
+    `connectSurface caps=${JSON.stringify(caps)} commands=${JSON.stringify(commands)}`,
+  );
 
   const client = new GatewayClient({
     url,
@@ -278,12 +308,8 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
     mode: GATEWAY_CLIENT_MODES.NODE,
     role: "node",
     scopes: [],
-    caps: ["system", ...pluginNodeHost.caps],
-    commands: [
-      ...NODE_SYSTEM_RUN_COMMANDS,
-      ...NODE_EXEC_APPROVALS_COMMANDS,
-      ...pluginNodeHost.commands,
-    ],
+    caps,
+    commands,
     pathEnv,
     permissions: undefined,
     deviceIdentity: loadOrCreateDeviceIdentity(),

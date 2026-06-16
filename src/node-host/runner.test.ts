@@ -67,6 +67,11 @@ vi.mock("./config.js", () => ({
 
 vi.mock("./plugin-node-host.js", () => ({
   ensureNodeHostPluginRegistry: vi.fn(async () => undefined),
+  inspectNodeHostPluginRegistry: vi.fn(() => ({
+    active: false,
+    plugins: [],
+    nodeHostCommands: [],
+  })),
   listRegisteredNodeHostCapsAndCommands: vi.fn(() => ({
     caps: [],
     commands: [],
@@ -101,5 +106,13 @@ describe("runNodeHost", () => {
     expect(mocks.capturedGatewayClientOptions[0]?.deviceFamily).toBe(
       resolveNodeHostGatewayDeviceFamily(process.platform),
     );
+    expect(mocks.capturedGatewayClientOptions[0]?.caps).toEqual(["system"]);
+    expect(mocks.capturedGatewayClientOptions[0]?.commands).toEqual([
+      "system.run.prepare",
+      "system.run",
+      "system.which",
+      "system.execApprovals.get",
+      "system.execApprovals.set",
+    ]);
   });
 });

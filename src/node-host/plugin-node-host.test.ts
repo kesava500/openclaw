@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../plugins/runtime.js";
 import {
+  inspectNodeHostPluginRegistry,
   invokeRegisteredNodeHostCommand,
   listRegisteredNodeHostCapsAndCommands,
 } from "./plugin-node-host.js";
@@ -12,6 +13,14 @@ afterEach(() => {
 });
 
 describe("plugin node-host registry", () => {
+  it("reports inactive registry debug info", () => {
+    expect(inspectNodeHostPluginRegistry()).toEqual({
+      active: false,
+      plugins: [],
+      nodeHostCommands: [],
+    });
+  });
+
   it("lists plugin-declared caps and commands", () => {
     const registry = createEmptyPluginRegistry();
     registry.nodeHostCommands = [
@@ -76,5 +85,37 @@ describe("plugin node-host registry", () => {
     );
     await expect(invokeRegisteredNodeHostCommand("missing.command", null)).resolves.toBeNull();
     expect(handle).toHaveBeenCalledWith('{"ok":true}');
+  });
+
+  it("summarizes active registry debug info", () => {
+    const registry = createEmptyPluginRegistry();
+    registry.plugins.push({
+      id: "browser",
+      name: "Browser",
+      version: "test",
+      manifest: {},
+      path: "/tmp/browser",
+      source: "test",
+      status: "loaded",
+    } as never);
+    registry.nodeHostCommands = [
+      {
+        pluginId: "browser",
+        pluginName: "Browser",
+        command: {
+          command: "browser.proxy",
+          cap: "browser",
+          handle: vi.fn(async () => "{}"),
+        },
+        source: "test",
+      },
+    ];
+    setActivePluginRegistry(registry);
+
+    expect(inspectNodeHostPluginRegistry()).toEqual({
+      active: true,
+      plugins: ["browser:loaded"],
+      nodeHostCommands: ["browser.proxy:browser"],
+    });
   });
 });
