@@ -76,6 +76,12 @@ export type CodexTurnEnvironmentParams = JsonObject & {
   cwd: string;
 };
 
+export type CodexPermissionProfileSelection = JsonObject & {
+  type: "profile";
+  id: string;
+  modifications?: JsonValue[] | null;
+};
+
 export type CodexThreadStartParams = JsonObject & {
   input?: CodexUserInput[];
   cwd?: string;
@@ -85,6 +91,7 @@ export type CodexThreadStartParams = JsonObject & {
   approvalPolicy?: string | JsonObject;
   approvalsReviewer?: string | null;
   sandbox?: string;
+  permissions?: CodexPermissionProfileSelection;
   serviceTier?: CodexServiceTier | null;
   dynamicTools?: CodexDynamicToolSpec[] | null;
   developerInstructions?: string;
@@ -102,6 +109,7 @@ export type CodexThreadResumeParams = JsonObject & {
   approvalPolicy?: string | JsonObject;
   approvalsReviewer?: string | null;
   sandbox?: string;
+  permissions?: CodexPermissionProfileSelection;
   serviceTier?: CodexServiceTier | null;
   config?: JsonObject;
   developerInstructions?: string;
@@ -153,6 +161,7 @@ export type CodexTurnStartParams = JsonObject & {
   approvalPolicy?: string | JsonObject;
   approvalsReviewer?: string | null;
   sandboxPolicy?: CodexSandboxPolicy;
+  permissions?: CodexPermissionProfileSelection;
   serviceTier?: CodexServiceTier | null;
   effort?: string | null;
   personality?: string | null;
