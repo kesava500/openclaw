@@ -7,8 +7,6 @@ import "./agent-command.test-mocks.js";
 import { testing as acpManagerTesting } from "../acp/control-plane/manager.js";
 import * as authProfileStoreModule from "../agents/auth-profiles/store.js";
 import * as attemptExecutionRuntime from "../agents/command/attempt-execution.runtime.js";
-import type { AgentCommandDeliveryResult } from "../agents/command/delivery.js";
-import { deliverAgentCommandResult } from "../agents/command/delivery.runtime.js";
 import { runEmbeddedAgent } from "../agents/embedded-agent.js";
 import { loadManifestModelCatalog, loadModelCatalog } from "../agents/model-catalog.js";
 import * as modelSelectionModule from "../agents/model-selection.js";
@@ -1312,28 +1310,16 @@ describe("agentCommand", () => {
         },
       });
       mockConfig(home, store);
-      const sendMessageTelegram = vi.fn(async () => undefined);
-      const deliveryResult: AgentCommandDeliveryResult = {
-        payloads: [{ text: "ok", mediaUrl: null }],
-        meta: {
-          durationMs: 5,
-          agentMeta: { sessionId: "s", provider: "p", model: "m" },
-        },
-      };
-      vi.mocked(deliverAgentCommandResult).mockResolvedValueOnce(deliveryResult);
 
-      await agentCommand(
+      const prepared = await agentCommandTesting.prepareAgentCommandExecution(
         { message: "hi", to: sessionKey, deliver: true, channel: "telegram" },
         runtime,
-        { sendMessageTelegram },
       );
 
-      const deliveryCall = vi.mocked(deliverAgentCommandResult).mock.calls.at(-1)?.[0] as
-        | { opts?: { to?: string }; sessionEntry?: { lastTo?: string } }
-        | undefined;
-      expect(deliveryCall?.opts?.to).toBeUndefined();
-      expect(deliveryCall?.sessionEntry?.lastTo).toBe("+1555");
-      expect(sendMessageTelegram).not.toHaveBeenCalled();
+      expect(prepared.opts.to).toBeUndefined();
+      expect(prepared.sessionKey).toBe(sessionKey);
+      expect(prepared.sessionEntry?.lastTo).toBe("+1555");
+      expect(runEmbeddedAgent).not.toHaveBeenCalled();
     });
   });
 

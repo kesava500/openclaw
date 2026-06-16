@@ -1352,6 +1352,7 @@ describe("dispatchReplyFromConfig", () => {
     setNoAbort();
     const dispatcher = createDispatcher();
     mocks.routeReply.mockClear();
+    hookMocks.runner.hasHooks.mockReturnValue(false);
     const cfg = { ...emptyConfig, diagnostics: { enabled: false } } satisfies OpenClawConfig;
 
     const result = await dispatchReplyFromConfig({
@@ -1360,6 +1361,7 @@ describe("dispatchReplyFromConfig", () => {
         Surface: "slack",
         OriginatingChannel: "telegram",
         OriginatingTo: "telegram:999",
+        MessageSid: "msg-cli-owned-routed-final",
         SessionKey: "agent:main:telegram:group:999",
       }),
       cfg,

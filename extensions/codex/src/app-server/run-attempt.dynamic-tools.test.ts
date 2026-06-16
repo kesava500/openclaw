@@ -139,11 +139,11 @@ describe("runCodexAppServerAttempt dynamic tools", () => {
       status: "completed",
       durationMs: 1,
     };
-    const webSearchStarted = harness.notify({
+    await harness.notify({
       method: "item/started",
       params: { threadId: "thread-1", turnId: "turn-1", item: webSearchItem },
     });
-    const rawWebSearch = harness.notify({
+    await harness.notify({
       method: "rawResponseItem/completed",
       params: {
         threadId: "thread-1",
@@ -168,7 +168,6 @@ describe("runCodexAppServerAttempt dynamic tools", () => {
         },
       },
     });
-    await rawWebSearch;
     const slowCall = harness.handleServerRequest({
       id: "request-slow",
       method: "item/tool/call",
@@ -194,7 +193,7 @@ describe("runCodexAppServerAttempt dynamic tools", () => {
       exitCode: 0,
       durationMs: 1,
     };
-    const nativeStarted = harness.notify({
+    await harness.notify({
       method: "item/started",
       params: { threadId: "thread-1", turnId: "turn-1", item: nativeItem },
     });
@@ -210,8 +209,6 @@ describe("runCodexAppServerAttempt dynamic tools", () => {
         arguments: {},
       },
     });
-    await nativeStarted;
-    await webSearchStarted;
     await harness.notify({
       method: "item/completed",
       params: { threadId: "thread-1", turnId: "turn-1", item: nativeItem },
