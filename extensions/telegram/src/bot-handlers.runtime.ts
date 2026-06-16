@@ -702,6 +702,7 @@ export const registerTelegramHandlers = ({
     runtimeCfg?: OpenClawConfig;
   }): {
     agentId: string;
+    hasSessionModelOverride: boolean;
     sessionEntry: ReturnType<typeof getSessionEntry>;
     sessionKey: string;
     model?: string;
