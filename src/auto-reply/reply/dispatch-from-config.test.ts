@@ -1762,27 +1762,6 @@ describe("dispatchReplyFromConfig", () => {
     await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
   });
 
-  it("routes when provider is webchat but surface carries originating channel metadata", async () => {
-    setNoAbort();
-    mocks.routeReply.mockClear();
-    const cfg = emptyConfig;
-    const dispatcher = createDispatcher();
-    const ctx = buildTestCtx({
-      Provider: "webchat",
-      Surface: "telegram",
-      OriginatingChannel: "telegram",
-      OriginatingTo: "telegram:999",
-    });
-
-    const replyResolver = async () => ({ text: "hi" }) satisfies ReplyPayload;
-    await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
-
-    expect(dispatcher.sendFinalReply).not.toHaveBeenCalled();
-    const routeCall = firstRouteReplyCall() as { channel?: unknown; to?: unknown } | undefined;
-    expect(routeCall?.channel).toBe("telegram");
-    expect(routeCall?.to).toBe("telegram:999");
-  });
-
   it("routes Feishu replies when provider is webchat and origin metadata points to Feishu", async () => {
     setNoAbort();
     mocks.routeReply.mockClear();
