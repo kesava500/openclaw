@@ -89,8 +89,9 @@ jobs:
           fetch_checkout_ref() {
             local ref="$1"
             local fetch_status
+            local fetch_timeout_seconds=90
             for attempt in 1 2 3; do
-              timeout --signal=TERM --kill-after=10s 30s git -C "$GITHUB_WORKSPACE" \
+              timeout --signal=TERM --kill-after=10s "${fetch_timeout_seconds}s" git -C "$GITHUB_WORKSPACE" \
                 -c protocol.version=2 \
                 fetch --no-tags --prune --no-recurse-submodules --depth=2 origin \
                 "+${ref}:refs/remotes/origin/checkout" && return 0
@@ -350,8 +351,9 @@ jobs:
           fetch_checkout_ref() {
             local ref="$1"
             local fetch_status
+            local fetch_timeout_seconds=90
             for attempt in 1 2 3; do
-              timeout --signal=TERM --kill-after=10s 30s git -C "$GITHUB_WORKSPACE" \
+              timeout --signal=TERM --kill-after=10s "${fetch_timeout_seconds}s" git -C "$GITHUB_WORKSPACE" \
                 -c protocol.version=2 \
                 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin \
                 "+${ref}:refs/remotes/origin/checkout" && return 0
