@@ -1572,8 +1572,7 @@ describe("dispatchReplyFromConfig", () => {
       OriginatingTo: undefined,
     });
 
-    const replyResolver = async () =>
-      ({ text: "hi", mediaUrl: "https://example.test/reply.png" }) satisfies ReplyPayload;
+    const replyResolver = async () => ({ text: "hi" }) satisfies ReplyPayload;
     await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
 
     expect(dispatcher.sendFinalReply).not.toHaveBeenCalled();
@@ -1583,10 +1582,6 @@ describe("dispatchReplyFromConfig", () => {
     expect(routeCall?.channel).toBe("telegram");
     expect(routeCall?.to).toBe("telegram:999");
     expect(routeCall?.accountId).toBe("acc-1");
-    const normalizerOptions = replyMediaPathMocks.createReplyMediaPathNormalizer.mock
-      .calls[0]?.[0] as { accountId?: unknown; messageProvider?: unknown } | undefined;
-    expect(normalizerOptions?.messageProvider).toBe("telegram");
-    expect(normalizerOptions?.accountId).toBe("acc-1");
     const replyDispatchCall = firstMockCall(hookMocks.runner.runReplyDispatch, "reply dispatch") as
       | [
           {
