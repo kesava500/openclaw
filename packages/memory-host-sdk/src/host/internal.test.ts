@@ -150,6 +150,24 @@ describe("memory host SDK package internals", () => {
     expect(scan).toEqual({ ok: true, files: [] });
   });
 
+  it("flags the scan when the workspace root cannot be read", async () => {
+    const tmpDir = getTmpDir();
+    const realReaddir = fs.readdir;
+    vi.spyOn(fs, "readdir").mockImplementation(async (...args: Parameters<typeof realReaddir>) => {
+      const [target] = args;
+      if (typeof target === "string" && path.resolve(target) === tmpDir) {
+        throw Object.assign(new Error("nfs blip"), { code: "EIO" });
+      }
+      return await realReaddir(...args);
+    });
+
+    const scan = await scanMemoryFiles(tmpDir);
+
+    // The root MEMORY.md lookup is part of the authoritative listing; a root
+    // read failure must not look like the file was deleted.
+    expect(scan).toEqual({ ok: false, files: [] });
+  });
+
   it("flags the scan when the memory dir cannot be read", async () => {
     const tmpDir = getTmpDir();
     const memoryDir = path.join(tmpDir, "memory");

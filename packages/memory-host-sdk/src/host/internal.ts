@@ -26,10 +26,7 @@ import {
   estimateStringChars,
   runTasksWithConcurrency,
 } from "./openclaw-runtime-io.js";
-import {
-  resolveCanonicalRootMemoryFile,
-  shouldSkipRootMemoryAuxiliaryPath,
-} from "./openclaw-runtime-memory.js";
+import { shouldSkipRootMemoryAuxiliaryPath } from "./openclaw-runtime-memory.js";
 import { retryTransientMemoryRead } from "./read-retry.js";
 import { normalizeStringEntries, uniqueStrings } from "./string-utils.js";
 
@@ -182,9 +179,19 @@ export async function scanMemoryFiles(
     }
   };
 
-  const memoryFile = await resolveCanonicalRootMemoryFile(workspaceDir);
-  if (memoryFile) {
-    await addMarkdownFile(memoryFile);
+  try {
+    const entries = await fs.readdir(workspaceDir, { withFileTypes: true });
+    const memoryEntry = entries.find(
+      (entry) =>
+        entry.name === CANONICAL_ROOT_MEMORY_FILENAME && entry.isFile() && !entry.isSymbolicLink(),
+    );
+    if (memoryEntry) {
+      await addMarkdownFile(path.join(workspaceDir, memoryEntry.name));
+    }
+  } catch (err) {
+    if (!isFileMissingError(err)) {
+      ok = false;
+    }
   }
   try {
     const dirStat = await fs.lstat(memoryDir);
