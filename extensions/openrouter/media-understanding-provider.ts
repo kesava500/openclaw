@@ -18,6 +18,8 @@ import { asFiniteNumber } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { OPENROUTER_BASE_URL } from "./provider-catalog.js";
 
 const DEFAULT_OPENROUTER_AUDIO_TRANSCRIPTION_MODEL = "openai/whisper-large-v3-turbo";
+const DEFAULT_OPENROUTER_CHAT_AUDIO_PROMPT =
+  "Transcribe the audio. Reply with only the transcript.";
 const SUPPORTED_AUDIO_FORMATS = new Set(["wav", "mp3", "flac", "m4a", "ogg", "webm", "aac"]);
 
 function normalizeMimeType(mime?: string): string | undefined {
@@ -96,9 +98,79 @@ function resolveOpenRouterAudioFormat(params: { mime?: string; fileName?: string
   );
 }
 
+/** Whisper-style STT models use /audio/transcriptions; multimodal chat models use /chat/completions. */
+function usesOpenRouterChatAudio(model: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  if (
+    normalized.includes("whisper") ||
+    normalized.includes("transcribe") ||
+    normalized.includes("voxtral") ||
+    normalized.includes("senseaudio") ||
+    normalized.includes("nova-") ||
+    normalized.includes("deepgram")
+  ) {
+    return false;
+  }
+  return (
+    normalized.includes("gemini") ||
+    normalized.startsWith("google/") ||
+    normalized.includes("gpt-4o") ||
+    normalized.includes("gpt-5") ||
+    normalized.includes("claude") ||
+    normalized.includes("qwen")
+  );
+}
+
 type OpenRouterSttResponse = {
   text?: string;
 };
+
+type OpenRouterChatResponse = {
+  choices?: Array<{
+    message?: {
+      content?: string | Array<{ type?: string; text?: string }>;
+    };
+  }>;
+};
+
+function extractOpenRouterChatText(payload: OpenRouterChatResponse): string | undefined {
+  const content = payload.choices?.[0]?.message?.content;
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return undefined;
+  }
+  const text = content
+    .map((part) => (typeof part?.text === "string" ? part.text.trim() : ""))
+    .filter(Boolean)
+    .join("\n");
+  return text || undefined;
+}
+
+function resolveOpenRouterAudioRequestConfig(
+  params: AudioTranscriptionRequest & { model: string },
+) {
+  return resolveProviderHttpRequestConfig({
+    baseUrl: params.baseUrl,
+    defaultBaseUrl: OPENROUTER_BASE_URL,
+    headers: params.headers,
+    request: params.request,
+    defaultHeaders: {
+      Authorization: `Bearer ${params.apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://openclaw.ai",
+      "X-OpenRouter-Title": "OpenClaw",
+    },
+    provider: "openrouter",
+    api: usesOpenRouterChatAudio(params.model) ? "openai-completions" : "openrouter-stt",
+    capability: "audio",
+    transport: "media-understanding",
+  });
+}
 
 export async function transcribeOpenRouterAudio(
   params: AudioTranscriptionRequest,
@@ -110,23 +182,61 @@ export async function transcribeOpenRouterAudio(
   });
   const fetchFn = params.fetchFn ?? fetch;
   const { baseUrl, allowPrivateNetwork, headers, dispatcherPolicy } =
-    resolveProviderHttpRequestConfig({
-      baseUrl: params.baseUrl,
-      defaultBaseUrl: OPENROUTER_BASE_URL,
-      headers: params.headers,
-      request: params.request,
-      defaultHeaders: {
-        Authorization: `Bearer ${params.apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://openclaw.ai",
-        "X-OpenRouter-Title": "OpenClaw",
-      },
-      provider: "openrouter",
-      api: "openrouter-stt",
-      capability: "audio",
-      transport: "media-understanding",
-    });
+    resolveOpenRouterAudioRequestConfig({ ...params, model });
   const temperature = asFiniteNumber(params.query?.temperature);
+
+  if (usesOpenRouterChatAudio(model)) {
+    const prompt =
+      params.prompt?.trim() ||
+      (params.language?.trim()
+        ? `${DEFAULT_OPENROUTER_CHAT_AUDIO_PROMPT} Language hint: ${params.language.trim()}.`
+        : DEFAULT_OPENROUTER_CHAT_AUDIO_PROMPT);
+    const { response, release } = await postJsonRequest({
+      url: `${baseUrl}/chat/completions`,
+      headers,
+      body: {
+        model,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              {
+                type: "input_audio",
+                input_audio: {
+                  data: params.buffer.toString("base64"),
+                  format,
+                },
+              },
+            ],
+          },
+        ],
+        ...(temperature !== undefined ? { temperature } : {}),
+      },
+      timeoutMs: params.timeoutMs,
+      fetchFn,
+      allowPrivateNetwork,
+      dispatcherPolicy,
+      auditContext: "openrouter chat audio",
+    });
+
+    try {
+      await assertOkOrThrowHttpError(response, "OpenRouter audio transcription failed");
+      const payload = await readProviderJsonResponse<OpenRouterChatResponse>(
+        response,
+        "openrouter.chat-audio",
+      );
+      return {
+        text: requireTranscriptionText(
+          extractOpenRouterChatText(payload),
+          "OpenRouter transcription response missing text",
+        ),
+        model,
+      };
+    } finally {
+      await release();
+    }
+  }
 
   const { response, release } = await postJsonRequest({
     url: `${baseUrl}/audio/transcriptions`,
