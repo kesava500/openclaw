@@ -107,7 +107,8 @@ export function resolveModelSelectionFromDirective(params: {
     useStoredNumericProfile && storedNumericProfile ? storedNumericProfile.modelRaw : raw;
   let modelSelection: ModelDirectiveSelection | undefined;
 
-  if (/^[0-9]+$/.test(raw)) {
+  const exactAlias = params.aliasIndex.byAlias.get(raw.toLowerCase());
+  if (/^[0-9]+$/.test(raw) && !exactAlias) {
     return {
       errorText: [
         "Numeric model selection is not supported in chat.",
