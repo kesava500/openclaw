@@ -1153,31 +1153,6 @@ describe("/model chat UX", () => {
     expect(resolved.errorText).toContain("Browse: /models or /models <provider>");
   });
 
-  it("allows an exact configured numeric alias", () => {
-    const resolved = resolveModelSelectionFromDirective({
-      directives: parseInlineDirectives("/model 55"),
-      cfg: { commands: { text: true } } as unknown as OpenClawConfig,
-      agentDir: TEST_AGENT_DIR,
-      defaultProvider: "anthropic",
-      defaultModel: "claude-opus-4-6",
-      aliasIndex: {
-        byAlias: new Map([["55", { alias: "55", ref: { provider: "codex", model: "gpt-5.5" } }]]),
-        byKey: new Map([["codex/gpt-5.5", ["55"]]]),
-      },
-      allowedModelKeys: new Set(["anthropic/claude-opus-4-6", "codex/gpt-5.5"]),
-      allowedModelCatalog: [{ provider: "codex", id: "gpt-5.5" }],
-      provider: "anthropic",
-    });
-
-    expect(resolved.errorText).toBeUndefined();
-    expect(resolved.modelSelection).toEqual({
-      provider: "codex",
-      model: "gpt-5.5",
-      isDefault: false,
-      alias: "55",
-    });
-  });
-
   it("includes additive allowlist repair when a runtime switch targets a blocked model", () => {
     const resolved = resolveModelSelectionForCommand({
       command: "/model openai/gpt-5.5 --runtime codex",
