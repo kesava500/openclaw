@@ -655,6 +655,21 @@ describe("/model chat UX", () => {
   });
 
   it("includes the thinking level in channel-specific model summaries", async () => {
+    const registry = createEmptyPluginRegistry();
+    registry.channels = [
+      {
+        pluginId: "test",
+        plugin: {
+          id: "telegram",
+          commands: {
+            buildModelBrowseChannelData: () => ({ telegram: { inlineKeyboard: [] } }),
+          },
+        },
+        source: "test",
+      },
+    ] as never;
+    setActivePluginRegistry(registry);
+
     const reply = await resolveModelInfoReply({ surface: "telegram" });
 
     expect(reply?.channelData).toBeDefined();
