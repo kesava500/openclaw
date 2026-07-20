@@ -28,6 +28,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { shortenHomePath } from "../../utils.js";
 import { resolveSelectedAndActiveModel } from "../model-runtime.js";
 import { resolveSupportedThinkingLevel } from "../thinking.js";
+import type { ThinkingCatalogEntry } from "../thinking.shared.js";
 import type { ReplyPayload } from "../types.js";
 import { resolveModelsCommandReply } from "./commands-models.js";
 import {
@@ -384,8 +385,8 @@ export async function maybeHandleModelDirectiveInfo(params: {
   allowedModelKeys: ReadonlySet<string>;
   allowedModelCatalog: Array<{ provider: string; id?: string; name?: string }>;
   currentThinkLevel: ThinkLevel;
-  thinkingCatalog?: Array<{ provider: string; id?: string; name?: string }>;
-  runtimePolicySessionKey: string;
+  thinkingCatalog?: ThinkingCatalogEntry[];
+  runtimePolicySessionKey?: string;
   resetModelOverride: boolean;
   workspaceDir?: string;
   surface?: string;
